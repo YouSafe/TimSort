@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { insertionSort } from '@/algorithms/insertionSort';
+import { partitionRuns } from '@/algorithms/partitionRuns';
+import { timSort } from '@/algorithms/timSort';
 import { useRouteQuery } from '@/hooks/routerRef';
+import { deepCopy } from '@/utils/deepCopy';
 import { computed, ref } from 'vue';
 
 const input = useRouteQuery('input', '');
-
 const minRunLength = ref(3);
 
 const runs = computed(() => {
@@ -12,143 +15,14 @@ const runs = computed(() => {
   }
   const numbers = input.value.split(',').map((val) => parseInt(val, 10));
 
-  const runsArray = [] as number[][];
-  let currRun = [] as number[];
-  let mode: 'STRICTLYDECREASING' | 'INCREASING' | 'MINRUNLENGTH' | undefined;
-  let lastNumber;
-  for (const number of numbers) {
-    if (lastNumber && !mode) {
-      if (number >= lastNumber) {
-        mode = 'INCREASING';
-      } else if (number < lastNumber) {
-        mode = 'STRICTLYDECREASING';
-      }
-    }
-
-    if (lastNumber) {
-      if (mode == 'INCREASING' && number < lastNumber) {
-        mode = 'MINRUNLENGTH';
-      } else if (mode == 'STRICTLYDECREASING' && number >= lastNumber) {
-        mode = 'MINRUNLENGTH';
-      }
-    }
-
-    if (mode == 'MINRUNLENGTH' && currRun.length >= minRunLength.value) {
-      runsArray.push(currRun);
-      mode = undefined;
-      currRun = [];
-    }
-    currRun.push(number);
-    lastNumber = number;
-  }
-  if (currRun.length > 0) {
-    runsArray.push(currRun);
-  }
-  return runsArray;
+  return partitionRuns(numbers, minRunLength.value);
 });
 
-const insertionSort = (numbers: number[]) => {
-  for (let i = 1; i < numbers.length; i++) {
-    let current = numbers[i];
-    let j = i - 1;
-    while (j > -1 && current < numbers[j]) {
-      numbers[j + 1] = numbers[j];
-      j--;
-    }
-    numbers[j + 1] = current;
-  }
-  return numbers;
-};
-
-const mergeArrays = (a: number[], b: number[]) => {
-  const sorted: number[] = [];
-  while (a.length > 0 || b.length > 0) {
-    if (a.length === 0) {
-      for (const num of b) {
-        sorted.push(num);
-      }
-      break;
-    } else if (b.length === 0) {
-      for (const num of a) {
-        sorted.push(num);
-      }
-      break;
-    } else {
-      if (a[0] <= b[0]) {
-        sorted.push(a[0]);
-        a.shift();
-      } else {
-        sorted.push(b[0]);
-        b.shift();
-      }
-    }
-    console.log(sorted);
-  }
-  return sorted;
-};
-
-const deepCopy = (oldObject: object) => JSON.parse(JSON.stringify(oldObject));
-
-const sortedRuns = computed(() => runs.value.map(insertionSort));
+const sortedRuns = computed(() => deepCopy(runs.value).map(insertionSort));
 
 const steps = computed(() => {
-  const stepsArray: { description: string; runStack: number[][] }[] = [];
-
   const runs = deepCopy(sortedRuns.value);
-  const runsStack: number[][] = [];
-
-  while (runs.length !== 0) {
-    const currRun = runs.shift();
-    if (currRun) {
-      runsStack.unshift(currRun);
-      stepsArray.push({
-        description: 'push run',
-        runStack: deepCopy(runsStack),
-      });
-    }
-
-    // merge collapse
-    while (runsStack.length > 1) {
-      if (runsStack.length > 2 && runsStack[2].length <= runsStack[1].length + runsStack[0].length) {
-        if (runsStack[2].length < runsStack[0].length) {
-          // at index 1 remove 2 and add merged
-          runsStack.splice(1, 2, mergeArrays(runsStack[1], runsStack[2]));
-          stepsArray.push({
-            description: 'r3 < r1: merge 2 and 3',
-            runStack: deepCopy(runsStack),
-          });
-        } else {
-          // at index 0 remove 2 and add merged
-          runsStack.splice(0, 2, mergeArrays(runsStack[0], runsStack[1]));
-          stepsArray.push({
-            description: 'r3 >= r1: merge 1 and 2',
-            runStack: deepCopy(runsStack),
-          });
-        }
-      } else if (runsStack.length > 1 && runsStack[1].length <= runsStack[0].length) {
-        // at index 0 remove 2 and add merged
-        runsStack.splice(0, 2, mergeArrays(runsStack[0], runsStack[1]));
-        stepsArray.push({
-          description: 'r2 <= r1: merge 1 and 2',
-          runStack: deepCopy(runsStack),
-        });
-      } else {
-        break;
-      }
-    }
-  }
-  while (runsStack.length !== 1) {
-    if (runsStack[0] && runsStack[1]) {
-      runsStack.splice(0, 2, mergeArrays(runsStack[0], runsStack[1]));
-      stepsArray.push({
-        description: 'merge top two runs',
-        runStack: deepCopy(runsStack),
-      });
-    } else {
-      break;
-    }
-  }
-
+  const stepsArray = timSort(runs);
   return stepsArray;
 });
 </script>
@@ -184,7 +58,14 @@ const steps = computed(() => {
       <tbody>
         <tr v-for="(step, index) in steps" :key="index">
           <td>{{ step.description }}</td>
-          <td>{{ step.runStack }}</td>
+          <td>
+            <div class="stack" v-for="(item, ind) in step.runStack" :key="ind">
+              <span class="number">
+                <span class="stack-label">R[{{ ind + 1 }}]: </span
+                ><span class="number" v-for="(num, id) in item" :key="id">{{ num }}</span>
+              </span>
+            </div>
+          </td>
         </tr>
       </tbody>
     </table>
@@ -192,6 +73,11 @@ const steps = computed(() => {
 </template>
 
 <style scoped>
+.stack {
+  display: flex;
+  flex-direction: row;
+}
+
 .runs {
   display: flex;
 }
@@ -201,5 +87,18 @@ const steps = computed(() => {
 }
 .number {
   margin: 0.25em;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border: 1px solid black;
+}
+
+.stack-label {
+  font-weight: bold;
 }
 </style>
